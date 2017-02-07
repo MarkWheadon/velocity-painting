@@ -4,6 +4,9 @@ I'd love this to evolve into something cool. All I ask is that you use the term 
 _#VelocityPainting_, and ack that I, Mark Wheadon, started this bizarre journey with the idea, the name, and some functional
 though fragile code ;-) See the licence at the bottom of this document.
 
+If you improve this code then it would be great if you could submit a pull
+request back to the repository -- so others can benefit from the work.
+
 So, this is a _very_ rough and ready perl script that when given an image file and a GCODE file, processes the GCODE to change
 print speeds according to the intensity of the image pixels -- thus mapping the image onto the model.
 
