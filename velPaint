@@ -1,0 +1,174 @@
+#!/opt/local/bin/perl -w
+
+# Velocity Painting by [Mark Wheadon](https://github.com/MarkWheadon) is licensed under a [Creative Commons Attribution 4.0
+# International License](http://creativecommons.org/licenses/by/4.0/).
+# Based on a work at https://github.com/MarkWheadon/velocity-painting.
+
+use Image::Magick;
+
+if (@ARGV < 4) {
+	print STDERR <<END;
+Usage: $0 targetSpeed lowSpeed highSpeed imageFile [sourceGcodeFile] > paintedGcodeFile
+Where targetSpeed is the speed of the vectors you wish to manipulate
+(so slice the model with all speeds set to this value).
+lowSpeed is the required speed for the slow parts of the print
+highSpeed is the required speed for the quick parts of the print
+imageFile is the image to be mapped onto the print.
+
+All speeds above are in mm/min.
+END
+	exit 1;
+}
+
+my $targetSpeed = shift @ARGV;
+my $lowSpeed = shift @ARGV;
+my $highSpeed = shift @ARGV;
+my $imageFile = shift @ARGV;
+
+my $image = Image::Magick->new;
+my $res = $image->Read($imageFile);
+die "$res" if "$res";
+
+my $imageWidth = $image->Get('columns');;
+my $imageHeight = $image->Get('rows');
+
+my $maxVecLength = .1; # Longest vector in mm. Splits longer vectors. Very small -> long processing times.
+
+my ($oldX, $oldY, $oldZ);
+my $currentZ;
+my $lastZOutput = -1;
+
+while (my $line = <>) {
+	my ($x, $y, $z, $e, $f);
+
+	chomp $line;
+
+	($x, $y, $z, $e, $f) =
+	 $line =~ /G1 X([^\s]+) Y([^\s]+) Z([^\s]+) E([^\s]+) F($targetSpeed)$/;
+	($x, $y, $e, $f) =
+	 $line =~ /G1 X([^\s]+) Y([^\s]+) E([^\s]+) F($targetSpeed)$/ unless (defined $x);
+	($x, $y, $z, $e) =
+	 $line =~ /G1 X([^\s]+) Y([^\s]+) Z([^\s]+) E([^\s]+)$/ unless (defined $x);
+	($x, $y, $e) =
+	 $line =~ /G1 X([^\s]+) Y([^\s]+) E([^\s]+)$/ unless (defined $x);
+
+	if (defined $z) { $currentZ = $z } else { $z = $currentZ; }
+
+	if (defined $x) {
+		if (!defined $oldZ) {
+			&outMove($x, $y, $z, $e, 0);
+		} else {
+			my $xd = $x - $oldX;
+			my $yd = $y - $oldY;
+			my $zd = $z - $oldZ;
+			my $ed = $e - $oldE;
+
+			my $length = sqrt($xd * $xd + $yd * $yd + $zd * $zd);
+
+			if ($length <= $maxVecLength) {
+				&outMove($x, $y, $z, $e, 0);
+			} else {
+				my $lastSegOut = -1;
+				my $oSlow = &surfaceSpeed($oldX, $oldY, $oldZ);
+
+				my $nSegs = int($length / $maxVecLength + 0.5);
+
+				my $xDelta = $xd / $nSegs;
+				my $yDelta = $yd / $nSegs;
+				my $zDelta = $zd / $nSegs;
+				my $eDelta = $ed / $nSegs;
+
+				for (my $i = 1; $i <= $nSegs; $i++) {
+					my $nx = $oldX + $xDelta * $i;
+					my $ny = $oldY + $yDelta * $i;
+					my $nz = $oldZ + $zDelta * $i;
+
+					my $slow = &surfaceSpeed($nx, $ny, $nz);
+
+					if (($slow != $oSlow) && ($i > 1)) {
+						# pattern has changed. Time to output the vector so far
+						&outMove($oldX + $xDelta * ($i - 1),
+						  $oldY + $yDelta * ($i - 1),
+						  $oldZ + $zDelta * ($i - 1),
+						  $oldE + $eDelta * ($i - 1), 1);
+						$oSlow = $slow;
+						$lastSegOut = $i;
+					}
+				}
+				if ($lastSegOut != $nSegs) {
+					&outMove($x, $y, $z, $e);
+				}
+			}
+		}
+		$oldX = $x; $oldY = $y; $oldZ = $z; $oldE = $e;
+	} else {
+		if ($line =~ /G1 X([^\s]+) Y([^\s]+) Z([^\s]+)/) {
+			$oldX = $1; $oldY=$2; $oldZ = $3;
+		} elsif ($line =~ /G1 X([^\s]+) Y([^\s]+)/) {
+			$oldX = $1; $oldY=$2;
+		}
+		if ($line =~ /Z([\d\.]+)/) {
+			$currentZ = $1;
+			$oldZ = $1;
+		} 
+		if ($line =~ /E([\d\.]+)/) {
+			$oldE = $1;
+		}
+		print "$line\n";
+	}
+}
+
+sub surfaceSpeed() {
+	my ($x, $y, $z) = @_;
+
+	my $xWidth = 77; # mm
+	my $yWidth = 140; # mm
+	my $zOffset = 20;
+
+	my $yNormalized = ($y + $xWidth / 2) / $xWidth;
+	my $zNormalized = ($z - $zOffset) / $yWidth;
+
+	my $imageX = $yNormalized * $imageWidth;
+	my $imageY = $imageHeight - $zNormalized * $imageHeight;
+
+	if ($imageX < 0 || $imageX >= $imageWidth || $imageY < 0 || $imageY >= $imageHeight) {
+		# return $highSpeed;
+		return $lowSpeed;
+	}
+
+ 	# return $highSpeed - $image->GetPixel(x=>$imageX, y=>$imageY)  * ($highSpeed - $lowSpeed);
+ 	return $lowSpeed + $image->GetPixel(x=>$imageX, y=>$imageY)  * ($highSpeed - $lowSpeed);
+}
+
+# Play with surfaceSpeed() as necessary -- this one maps image vertically
+# sub surfaceSpeed() {
+# 	my ($x, $y, $z) = @_;
+# 
+# 	my $xWidth = 200; # mm
+# 	my $yWidth = 800; # mm
+# 	my $yOffset = 0;
+# 
+# 	my $xNormalized = ($x + $xWidth / 2) / $xWidth;
+# 	my $yNormalized = (($y + $yWidth / 2) - $yOffset) / $yWidth;
+# 
+# 	my $imageX = $xNormalized * $imageWidth;
+# 	my $imageY = $imageHeight - $yNormalized * $imageHeight;
+# 
+# 	if ($imageX < 0 || $imageX >= $imageWidth || $imageY < 0 || $imageY >= $imageHeight) {
+# 		return $highSpeed;
+# 	}
+# 
+# 	return $highSpeed - $image->GetPixel(x=>$imageX, y=>$imageY)  * ($highSpeed - $lowSpeed);
+# }
+
+sub outMove() {
+	my ($x, $y, $z, $e, $extra) = @_;
+
+	my $zCommand = "";
+	if ($z != $lastZOutput) { $zCommand = sprintf(" Z%.3f", $z); }
+
+	my $added = ""; if ($extra) { $added = " ; added"; }
+
+	printf("G1 X%.3f Y%.3f$zCommand E%.3f F%.3f$added\n", $x, $y, $e, &surfaceSpeed($x, $y, $z));
+	$lastZOutput = $z;
+}
