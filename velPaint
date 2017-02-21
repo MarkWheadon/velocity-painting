@@ -4,12 +4,24 @@
 # International License](http://creativecommons.org/licenses/by/4.0/).
 # Based on a work at https://github.com/MarkWheadon/velocity-painting.
 
+
+use Math::Trig;
 use Image::Magick;
 
-if (@ARGV < 4) {
+unless ((@ARGV > 0) &&
+   (($ARGV[0] eq '-projectX' && @ARGV >= 10) ||
+   ($ARGV[0] eq '-cylinderZ' && @ARGV >= 9))) {
 	print STDERR <<END;
-Usage: $0 targetSpeed lowSpeed highSpeed imageFile [sourceGcodeFile] > paintedGcodeFile
-Where targetSpeed is the speed of the vectors you wish to manipulate
+Usage:
+  $0 -projectX  printCentreX printCentreY imageWidth imageHeight zOffset targetSpeed lowSpeed highSpeed imageFile [sourceGcodeFile] > paintedGcodeFile
+  $0 -cylinderZ printCentreX printCentreY            imageHeight zOffset targetSpeed lowSpeed highSpeed imageFile [sourceGcodeFile] > paintedGcodeFile
+
+printCentre{X,Y} is the centre of the print in the printer's coordinate space, in mm.
+When the print in centred on the bed then printCentre{X,Y} is 0,0 for most (all?) detas. 125,125 for the Prusa i3 MK2.
+imageWidth and imageHeight are also in mm.
+Specifying an imageWith of '-' sets it to the correct width for the specified height.
+Specifying an imageHeight of '-' sets it to the correct height for the specified width.
+targetSpeed is the speed of the vectors you wish to manipulate
 (so slice the model with all speeds set to this value).
 lowSpeed is the required speed for the slow parts of the print
 highSpeed is the required speed for the quick parts of the print
@@ -20,6 +32,19 @@ END
 	exit 1;
 }
 
+my $projectionMode = shift @ARGV;
+my $projectedImageWidth;
+
+my $printCentreX = shift @ARGV;
+my $printCentreY = shift @ARGV;
+
+if ($projectionMode  eq '-projectX') {
+	$projectedImageWidth = shift @ARGV;
+}
+
+my $projectedImageHeight = shift @ARGV;
+
+my $zOffset = shift @ARGV;
 my $targetSpeed = shift @ARGV;
 my $lowSpeed = shift @ARGV;
 my $highSpeed = shift @ARGV;
@@ -32,6 +57,21 @@ die "$res" if "$res";
 my $imageWidth = $image->Get('columns');;
 my $imageHeight = $image->Get('rows');
 
+if ((($projectionMode eq '-cylinderZ') || $projectedImageWidth eq '-') && $projectedImageHeight eq '-') {
+	print STDERR <<END;
+$0: you must set either the image width or its height, or both.
+END
+	exit 1;
+}
+
+if (defined $projectedImageWidth && $projectedImageWidth eq '-') {
+	$projectedImageWidth = $projectedImageHeight * $imageWidth / $imageHeight;
+}
+
+if ($projectedImageHeight eq '-') {
+	$projectedImageHeight = $projectedImageWidth * $imageHeight / $imageWidth;
+}
+
 my $maxVecLength = .1; # Longest vector in mm. Splits longer vectors. Very small -> long processing times.
 
 my ($oldX, $oldY, $oldZ);
@@ -42,6 +82,7 @@ while (my $line = <>) {
 	my ($x, $y, $z, $e, $f);
 
 	chomp $line;
+	$line =~ s/\r//g;
 
 	($x, $y, $z, $e, $f) =
 	 $line =~ /G1 X([^\s]+) Y([^\s]+) Z([^\s]+) E([^\s]+) F($targetSpeed)$/;
@@ -119,16 +160,40 @@ while (my $line = <>) {
 }
 
 sub surfaceSpeed() {
+	if ($projectionMode eq '-cylinderZ') {
+		return surfaceSpeedCylinderZ(@_);
+	} elsif ($projectionMode eq '-projectX') {
+		return surfaceSpeedProjectX(@_);
+	}
+}
+
+sub surfaceSpeedCylinderZ() {
 	my ($x, $y, $z) = @_;
 
-	my $xWidth = 77; # mm
-	my $yWidth = 140; # mm
-	my $zOffset = 20;
+	my $zNormalized = ($z - $zOffset) / $projectedImageHeight;
 
-	my $yNormalized = ($y + $xWidth / 2) / $xWidth;
-	my $zNormalized = ($z - $zOffset) / $yWidth;
+	my $theta = atan2($y - $printCentreY, $x - $printCentreX) + pi; # 0 to 2pi
+	my $xNormalized = $theta / (2 * pi);
 
-	my $imageX = $yNormalized * $imageWidth;
+	my $imageX = $xNormalized * $imageWidth;
+	my $imageY = $imageHeight - $zNormalized * $imageHeight;
+
+	if ($imageX < 0 || $imageX >= $imageWidth || $imageY < 0 || $imageY >= $imageHeight) {
+		return $highSpeed;
+		# return $lowSpeed;
+	}
+
+ 	# return $highSpeed - $image->GetPixel(x=>$imageX, y=>$imageY)  * ($highSpeed - $lowSpeed);
+ 	return $lowSpeed + $image->GetPixel(x=>$imageX, y=>$imageY)  * ($highSpeed - $lowSpeed);
+}
+
+sub surfaceSpeedProjectX() {
+	my ($x, $y, $z) = @_;
+
+	my $xNormalized = ($x - $printCentreX + $projectedImageWidth / 2) / $projectedImageWidth;
+	my $zNormalized = ($z - $zOffset) / $projectedImageHeight;
+
+	my $imageX = $xNormalized * $imageWidth;
 	my $imageY = $imageHeight - $zNormalized * $imageHeight;
 
 	if ($imageX < 0 || $imageX >= $imageWidth || $imageY < 0 || $imageY >= $imageHeight) {
@@ -139,27 +204,6 @@ sub surfaceSpeed() {
  	# return $highSpeed - $image->GetPixel(x=>$imageX, y=>$imageY)  * ($highSpeed - $lowSpeed);
  	return $lowSpeed + $image->GetPixel(x=>$imageX, y=>$imageY)  * ($highSpeed - $lowSpeed);
 }
-
-# Play with surfaceSpeed() as necessary -- this one maps image vertically
-# sub surfaceSpeed() {
-# 	my ($x, $y, $z) = @_;
-# 
-# 	my $xWidth = 200; # mm
-# 	my $yWidth = 800; # mm
-# 	my $yOffset = 0;
-# 
-# 	my $xNormalized = ($x + $xWidth / 2) / $xWidth;
-# 	my $yNormalized = (($y + $yWidth / 2) - $yOffset) / $yWidth;
-# 
-# 	my $imageX = $xNormalized * $imageWidth;
-# 	my $imageY = $imageHeight - $yNormalized * $imageHeight;
-# 
-# 	if ($imageX < 0 || $imageX >= $imageWidth || $imageY < 0 || $imageY >= $imageHeight) {
-# 		return $highSpeed;
-# 	}
-# 
-# 	return $highSpeed - $image->GetPixel(x=>$imageX, y=>$imageY)  * ($highSpeed - $lowSpeed);
-# }
 
 sub outMove() {
 	my ($x, $y, $z, $e, $extra) = @_;
