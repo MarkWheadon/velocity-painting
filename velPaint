@@ -5,6 +5,7 @@
 # Based on a work at https://github.com/MarkWheadon/velocity-painting.
 
 
+our $VERSION = 0.1;
 use Math::Trig;
 use Image::Magick;
 
