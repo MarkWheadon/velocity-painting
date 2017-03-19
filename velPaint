@@ -93,6 +93,10 @@ while (my $line = <>) {
 	 $line =~ /G1 X([^\s]+) Y([^\s]+) Z([^\s]+) E([^\s]+)$/ unless (defined $x);
 	($x, $y, $e) =
 	 $line =~ /G1 X([^\s]+) Y([^\s]+) E([^\s]+)$/ unless (defined $x);
+	($z, $x, $y, $e, $f) =
+	 $line =~ /G1 Z([^\s]+) X([^\s]+) Y([^\s]+) E([^\s]+) F($targetSpeed)$/;
+	($z, $x, $y, $e) =
+	 $line =~ /G1 Z([^\s]+) X([^\s]+) Y([^\s]+) E([^\s]+)$/ unless (defined $x);
 
 	if (defined $z) { $currentZ = $z } else { $z = $currentZ; }
 
