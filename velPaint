@@ -57,6 +57,7 @@ my $image = Image::Magick->new;
 my $res = $image->Read($imageFile);
 die "$res" if "$res";
 
+my $speedRange = $highSpeed - $lowSpeed;
 my $imageWidth = $image->Get('columns');;
 my $imageHeight = $image->Get('rows');
 
@@ -148,12 +149,12 @@ while (my $line = <>) {
 				}
 			}
 		}
-        ($oldX, $oldY, $oldZ, $oldE) = ($x, $y, $z, $e);
+		($oldX, $oldY, $oldZ, $oldE) = ($x, $y, $z, $e);
 	} else {
 		if ($line =~ /G1 X(\S+) Y(\S+) Z(\S+)/) {
-            ($oldX, $oldY, $oldZ) = ($1, $2, $3);
+			($oldX, $oldY, $oldZ) = ($1, $2, $3);
 		} elsif ($line =~ /G1 X(\S+) Y(\S+)/) {
-            ($oldX, $oldY) = ($1, $2);
+			($oldX, $oldY) = ($1, $2);
 		}
 		if ($line =~ /Z([\d\.]+)/) {
 			$currentZ = $1;
@@ -174,6 +175,11 @@ sub surfaceSpeed {
 	}
 }
 
+sub outsideImage {
+	my ($imageX, $imageY) = @_;
+	return $imageX < 0 || $imageX >= $imageWidth || $imageY < 0 || $imageY >= $imageHeight;
+}
+
 sub surfaceSpeedCylinderZ {
 	my ($x, $y, $z) = @_;
 
@@ -185,13 +191,13 @@ sub surfaceSpeedCylinderZ {
 	my $imageX = $xNormalized * $imageWidth;
 	my $imageY = $imageHeight - $zNormalized * $imageHeight;
 
-	if ($imageX < 0 || $imageX >= $imageWidth || $imageY < 0 || $imageY >= $imageHeight) {
+	if (outsideImage( $imageX, $imageY )) {
 		return $highSpeed;
 		# return $lowSpeed;
 	}
 
- 	# return $highSpeed - $image->GetPixel(x=>$imageX, y=>$imageY)  * ($highSpeed - $lowSpeed);
- 	return $lowSpeed + $image->GetPixel(x=>$imageX, y=>$imageY)  * ($highSpeed - $lowSpeed);
+ 	# return $highSpeed - $image->GetPixel(x=>$imageX, y=>$imageY)  * $speedRange;
+ 	return $lowSpeed + $image->GetPixel(x=>$imageX, y=>$imageY)  * $speedRange;
 }
 
 sub surfaceSpeedProjectX {
@@ -203,13 +209,13 @@ sub surfaceSpeedProjectX {
 	my $imageX = $xNormalized * $imageWidth;
 	my $imageY = $imageHeight - $zNormalized * $imageHeight;
 
-	if ($imageX < 0 || $imageX >= $imageWidth || $imageY < 0 || $imageY >= $imageHeight) {
+	if (outsideImage( $imageX, $imageY )) {
 		# return $highSpeed;
 		return $lowSpeed;
 	}
 
- 	# return $highSpeed - $image->GetPixel(x=>$imageX, y=>$imageY)  * ($highSpeed - $lowSpeed);
- 	return $lowSpeed + $image->GetPixel(x=>$imageX, y=>$imageY)  * ($highSpeed - $lowSpeed);
+ 	# return $highSpeed - $image->GetPixel(x=>$imageX, y=>$imageY)  * $speedRange;
+ 	return $lowSpeed + $image->GetPixel(x=>$imageX, y=>$imageY)  * $speedRange;
 }
 
 sub outMove {
