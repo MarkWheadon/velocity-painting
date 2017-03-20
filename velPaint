@@ -6,6 +6,7 @@
 
 use strict;
 use warnings;
+use 5.10.1;
 
 our $VERSION = 0.1;
 use Math::Trig;
@@ -88,18 +89,11 @@ while (my $line = <>) {
 	chomp $line;
 	$line =~ s/\r//g;
 
-	($x, $y, $z, $e, $f) =
-	 $line =~ /G1 X(\S+) Y(\S+) Z(\S+) E(\S+) F($targetSpeed)$/;
-	($x, $y, $e, $f) =
-	 $line =~ /G1 X(\S+) Y(\S+) E(\S+) F($targetSpeed)$/ unless (defined $x);
-	($x, $y, $z, $e) =
-	 $line =~ /G1 X(\S+) Y(\S+) Z(\S+) E(\S+)$/ unless (defined $x);
-	($x, $y, $e) =
-	 $line =~ /G1 X(\S+) Y(\S+) E(\S+)$/ unless (defined $x);
-	($z, $x, $y, $e, $f) =
-	 $line =~ /G1 Z(\S+) X(\S+) Y(\S+) E(\S+) F($targetSpeed)$/;
-	($z, $x, $y, $e) =
-	 $line =~ /G1 Z(\S+) X(\S+) Y(\S+) E(\S+)$/ unless (defined $x);
+	if($line =~ /G1 X(?<x>\S+) Y(?<y>\S+)(?: Z(?<z>\S+))? E(?<e>\S+)(?: F(?<f>$targetSpeed))?$/ ||
+	  $line =~ /G1 Z(?<z>\S+) X(?<x>\S+) Y(?<y>\S+) E(?<e>\S+)(?: F(?<f>$targetSpeed))?$/)
+	{
+		($x, $y, $z, $e, $f) = @+{qw/x y z e f/};
+	}
 
 	if (defined $z) { $currentZ = $z } else { $z = $currentZ; }
 
