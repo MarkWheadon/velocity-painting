@@ -57,10 +57,11 @@ my $imageFile = shift @ARGV;
 my $image = Image::Magick->new;
 my $res = $image->Read($imageFile);
 die "$res" if "$res";
+$image->Quantize(colorspace=>'gray');  # Grayscale the image.
 
-my $speedRange = $highSpeed - $lowSpeed;
 my $imageWidth = $image->Get('columns');;
 my $imageHeight = $image->Get('rows');
+my $speedRange = $highSpeed - $lowSpeed;
 
 if ((($projectionMode eq '-cylinderZ') || $projectedImageWidth eq '-') && $projectedImageHeight eq '-') {
 	print STDERR <<END;
