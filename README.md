@@ -20,7 +20,7 @@ Run the script with no arguments to get some usage instructions.
 
 ## Dependencies
 
-The script relies on the _ImageMagick_ perl module _Image::Magick_ and _Math::Trig_. It really isn't in a state where anyone other than a programmer can use it -- it is very fragile in use and needs work! But experience has taught me that if I don't release it like this then I probably won't ever release it.
+The script relies on the _Imager_ perl module and _Math::Trig_.
 
 ## Important
 

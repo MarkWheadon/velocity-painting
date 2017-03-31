@@ -8,21 +8,28 @@ use strict;
 use warnings;
 use 5.10.1;
 
-our $VERSION = 0.1;
+our $VERSION = 0.2;
 use Math::Trig;
-use Image::Magick;
+use Imager;
 
 unless ((@ARGV > 0) &&
-   (($ARGV[0] eq '-projectX' && @ARGV >= 10) ||
-   ($ARGV[0] eq '-cylinderZ' && @ARGV >= 9))) {
+   (($ARGV[0] =~ /^-project[XYZ]$/ || $ARGV[0] eq '-spherical') && @ARGV >= 10) ||
+   ($ARGV[0] eq '-cylinderZ' && @ARGV >= 9)) {
 	print STDERR <<END;
 Usage:
   $0 -projectX  printCentreX printCentreY imageWidth imageHeight zOffset targetSpeed lowSpeed highSpeed imageFile [sourceGcodeFile] > paintedGcodeFile
+  $0 -projectY  printCentreX printCentreY imageWidth imageHeight zOffset targetSpeed lowSpeed highSpeed imageFile [sourceGcodeFile] > paintedGcodeFile
+  $0 -projectZ  printCentreX printCentreY imageWidth imageHeight zOffset targetSpeed lowSpeed highSpeed imageFile [sourceGcodeFile] > paintedGcodeFile
   $0 -cylinderZ printCentreX printCentreY            imageHeight zOffset targetSpeed lowSpeed highSpeed imageFile [sourceGcodeFile] > paintedGcodeFile
+  $0 -spherical printCentreX printCentreY xOffset    yOffset     zOffset targetSpeed lowSpeed highSpeed imageFile [sourceGcodeFile] > paintedGcodeFile
 
 printCentre{X,Y} is the centre of the print in the printer's coordinate space, in mm.
-When the print in centred on the bed then printCentre{X,Y} is 0,0 for most (all?) detas. 125,125 for the Prusa i3 MK2.
-imageWidth and imageHeight are also in mm.
+-projectX projects the image onto the X axis as if the X axis were a cinema screen.
+-projectY and -projectZ are similar, so use -projectZ to project onto the top/bottom of the model.
+-cylinderZ wraps the image around the Z axis: great for vases.
+-spherical projects outwards from the origin, offset by {x,y,z}Offset
+When the print in centred on the bed then printCentre{X,Y} is 0,0 for most (all?) detas. 125,105 for the Prusa i3 MK2.
+imageWidth and imageHeight and the offsets are all in mm.
 Specifying an imageWith of '-' sets it to the correct width for the specified height.
 Specifying an imageHeight of '-' sets it to the correct height for the specified width.
 targetSpeed is the speed of the vectors you wish to manipulate
@@ -42,28 +49,34 @@ my $projectedImageWidth;
 my $printCentreX = shift @ARGV;
 my $printCentreY = shift @ARGV;
 
-if ($projectionMode  eq '-projectX') {
+if ($projectionMode =~ /^-project[XYZ]$/) {
 	$projectedImageWidth = shift @ARGV;
 }
 
-my $projectedImageHeight = shift @ARGV;
-
+my $projectedImageHeight;
+my $xOffset;
+my $yOffset;
+if ($projectionMode eq '-spherical') {
+	$xOffset = shift @ARGV;
+	$yOffset = shift @ARGV;
+} else {
+	$projectedImageHeight = shift @ARGV;
+}
 my $zOffset = shift @ARGV;
+
 my $targetSpeed = shift @ARGV;
 my $lowSpeed = shift @ARGV;
 my $highSpeed = shift @ARGV;
 my $imageFile = shift @ARGV;
 
-my $image = Image::Magick->new;
-my $res = $image->Read($imageFile);
-die "$res" if "$res";
-$image->Quantize(colorspace=>'gray');  # Grayscale the image.
+my $colourImage = Imager->new(file=>$imageFile) or die Imager->errstr();
+my $image = $colourImage->convert(preset=>'grey');
 
-my $imageWidth = $image->Get('columns');;
-my $imageHeight = $image->Get('rows');
+my $imageWidth = $image->getwidth();
+my $imageHeight = $image->getheight();
 my $speedRange = $highSpeed - $lowSpeed;
 
-if ((($projectionMode eq '-cylinderZ') || $projectedImageWidth eq '-') && $projectedImageHeight eq '-') {
+if (($projectionMode ne '-spherical') && ((($projectionMode eq '-cylinderZ') || $projectedImageWidth eq '-') && $projectedImageHeight eq '-')) {
 	print STDERR <<END;
 $0: you must set either the image width or its height, or both.
 END
@@ -74,7 +87,7 @@ if (defined $projectedImageWidth && $projectedImageWidth eq '-') {
 	$projectedImageWidth = $projectedImageHeight * $imageWidth / $imageHeight;
 }
 
-if ($projectedImageHeight eq '-') {
+if (defined $projectedImageHeight && $projectedImageHeight eq '-') {
 	$projectedImageHeight = $projectedImageWidth * $imageHeight / $imageWidth;
 }
 
@@ -90,7 +103,7 @@ while (my $line = <>) {
 	chomp $line;
 	$line =~ s/\r//g;
 
-	if($line =~ /G1 X(?<x>\S+) Y(?<y>\S+)(?: Z(?<z>\S+))? E(?<e>\S+)(?: F(?<f>$targetSpeed))?$/ ||
+	if ($line =~ /G1 X(?<x>\S+) Y(?<y>\S+)(?: Z(?<z>\S+))? E(?<e>\S+)(?: F(?<f>$targetSpeed))?$/ ||
 	  $line =~ /G1 Z(?<z>\S+) X(?<x>\S+) Y(?<y>\S+) E(?<e>\S+)(?: F(?<f>$targetSpeed))?$/)
 	{
 		($x, $y, $z, $e, $f) = @+{qw/x y z e f/};
@@ -167,6 +180,12 @@ sub surfaceSpeed {
 		return surfaceSpeedCylinderZ(@_);
 	} elsif ($projectionMode eq '-projectX') {
 		return surfaceSpeedProjectX(@_);
+	} elsif ($projectionMode eq '-projectY') {
+		return surfaceSpeedProjectY(@_);
+	} elsif ($projectionMode eq '-projectZ') {
+		return surfaceSpeedProjectZ(@_);
+	} elsif ($projectionMode eq '-spherical') {
+		return surfaceSpeedSpherical(@_);
 	}
 }
 
@@ -191,8 +210,7 @@ sub surfaceSpeedCylinderZ {
 		# return $lowSpeed;
 	}
 
- 	# return $highSpeed - $image->GetPixel(x=>$imageX, y=>$imageY)  * $speedRange;
- 	return $lowSpeed + $image->GetPixel(x=>$imageX, y=>$imageY)  * $speedRange;
+	return $lowSpeed + greyAt($imageX, $imageY) * $speedRange;
 }
 
 sub surfaceSpeedProjectX {
@@ -209,8 +227,69 @@ sub surfaceSpeedProjectX {
 		return $lowSpeed;
 	}
 
- 	# return $highSpeed - $image->GetPixel(x=>$imageX, y=>$imageY)  * $speedRange;
- 	return $lowSpeed + $image->GetPixel(x=>$imageX, y=>$imageY)  * $speedRange;
+	return $lowSpeed + greyAt($imageX, $imageY) * $speedRange;
+}
+
+sub surfaceSpeedProjectY {
+	my ($x, $y, $z) = @_;
+
+	my $xNormalized = ($y - $printCentreX + $projectedImageWidth / 2) / $projectedImageWidth;
+	my $zNormalized = ($z - $zOffset) / $projectedImageHeight;
+
+	my $imageX = $xNormalized * $imageWidth;
+	my $imageY = $imageHeight - $zNormalized * $imageHeight;
+
+	if (outsideImage( $imageX, $imageY )) {
+		# return $highSpeed;
+		return $lowSpeed;
+	}
+
+	return $lowSpeed + greyAt($imageX, $imageY) * $speedRange;
+}
+
+sub surfaceSpeedProjectZ {
+	my ($x, $y, $z) = @_;
+
+	my $xNormalized = ($x - $printCentreX + $projectedImageWidth / 2) / $projectedImageWidth;
+	my $yNormalized = ($y - $printCentreY + $projectedImageHeight / 2) / $projectedImageHeight;
+
+	my $imageX = $xNormalized * $imageWidth;
+	my $imageY = $yNormalized * $imageHeight;
+
+	if (outsideImage( $imageX, $imageY )) {
+		# return $highSpeed;
+		return $lowSpeed;
+	}
+
+	return $lowSpeed + greyAt($imageX, $imageY) * $speedRange;
+}
+
+sub surfaceSpeedSpherical() {
+	my ($x, $y, $z) = @_;
+
+	my $theta = atan2($y - $yOffset - $printCentreY, $x - $xOffset - $printCentreX) + pi; # 0 to 2pi
+	my $xNormalized = $theta / (2 * pi);
+
+	$theta = atan2($z - $zOffset, $x - $xOffset - $printCentreX) + pi; # 0 to 2pi
+	my $zNormalized = $theta / (2 * pi);
+
+	my $imageX = $xNormalized * $imageWidth;
+	my $imageY = $imageHeight - $zNormalized * $imageHeight;
+
+	if ($imageX < 0 || $imageX >= $imageWidth || $imageY < 0 || $imageY >= $imageHeight) {
+		return $highSpeed;
+		# return $lowSpeed;
+	}
+
+	return $lowSpeed + greyAt($imageX, $imageY) * $speedRange;
+}
+
+sub greyAt {
+	my ($x, $y) = @_;
+	my $colours = $image->getpixel(x=>$x, y=>$y, type=>'float');
+	my ($r, $g, $b, $a) = $colours->rgba();
+
+	return $r;
 }
 
 sub outMove {
