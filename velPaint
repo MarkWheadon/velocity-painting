@@ -96,7 +96,7 @@ my $maxVecLength = .1; # Longest vector in mm. Splits longer vectors. Very small
 my ($oldX, $oldY, $oldZ, $oldE);
 my $currentZ;
 my $lastZOutput = -1;
-my $exstrudeAbsolute = 1;
+my $extrudeAbsolute = 1;
 
 while (my $line = <>) {
 	my ($x, $y, $z, $e, $f);
@@ -110,8 +110,8 @@ while (my $line = <>) {
 		($x, $y, $z, $e, $f) = @+{qw/x y z e f/};
 	}
 
-	if ($line =~ /M82/) { $exstrudeAbsolute = 1; }
-	if ($line =~ /M83/) { $exstrudeAbsolute = 0; }
+	if ($line =~ /M82/) { $extrudeAbsolute = 1; }
+	if ($line =~ /M83/) { $extrudeAbsolute = 0; }
 
 	if (defined $z) { $currentZ = $z } else { $z = $currentZ; }
 
@@ -122,7 +122,7 @@ while (my $line = <>) {
 			my $xd = $x - $oldX;
 			my $yd = $y - $oldY;
 			my $zd = $z - $oldZ;
-			my $ed = $exstrudeAbsolute ? ($e - $oldE) : $e;
+			my $ed = $extrudeAbsolute ? ($e - $oldE) : $e;
 
 			my $length = sqrt($xd * $xd + $yd * $yd + $zd * $zd);
 
@@ -151,13 +151,13 @@ while (my $line = <>) {
 						outMove($oldX + $xDelta * ($i - 1),
 						  $oldY + $yDelta * ($i - 1),
 						  $oldZ + $zDelta * ($i - 1),
-						  $exstrudeAbsolute ? ($oldE + $eDelta * ($i - 1)) : ($eDelta * ($i - $lastSegOut)), 1);
+						  $extrudeAbsolute ? ($oldE + $eDelta * ($i - 1)) : ($eDelta * ($i - $lastSegOut)), 1);
 						$oSlow = $slow;
 						$lastSegOut = $i;
 					}
 				}
 				if ($lastSegOut != $nSegs) {
-					outMove($x, $y, $z, $exstrudeAbsolute ? $e : ($eDelta * ($nSegs - $lastSegOut)), $lastSegOut != 0);
+					outMove($x, $y, $z, $extrudeAbsolute ? $e : ($eDelta * ($nSegs - $lastSegOut)), $lastSegOut != 0);
 				}
 			}
 		}
