@@ -8,13 +8,13 @@ use strict;
 use warnings;
 use 5.10.1;
 
-our $VERSION = 0.2;
+our $VERSION = 0.3;
 use Math::Trig;
 use Imager;
 
 unless ((@ARGV > 0) &&
-   (($ARGV[0] =~ /^-project[XYZ]$/ || $ARGV[0] eq '-spherical') && @ARGV >= 10) ||
-   ($ARGV[0] eq '-cylinderZ' && @ARGV >= 9)) {
+   ((($ARGV[0] =~ /^-project[XYZ]$/ || $ARGV[0] eq '-spherical') && @ARGV >= 10) ||
+   ($ARGV[0] eq '-cylinderZ' && @ARGV >= 9))) {
 	print STDERR <<END;
 Usage:
   $0 -projectX  printCentreX printCentreY imageWidth imageHeight zOffset targetSpeed lowSpeed highSpeed imageFile [sourceGcodeFile] > paintedGcodeFile
@@ -96,6 +96,7 @@ my $maxVecLength = .1; # Longest vector in mm. Splits longer vectors. Very small
 my ($oldX, $oldY, $oldZ, $oldE);
 my $currentZ;
 my $lastZOutput = -1;
+my $exstrudeAbsolute = 1;
 
 while (my $line = <>) {
 	my ($x, $y, $z, $e, $f);
@@ -109,6 +110,9 @@ while (my $line = <>) {
 		($x, $y, $z, $e, $f) = @+{qw/x y z e f/};
 	}
 
+	if ($line =~ /M82/) { $exstrudeAbsolute = 1; }
+	if ($line =~ /M83/) { $exstrudeAbsolute = 0; }
+
 	if (defined $z) { $currentZ = $z } else { $z = $currentZ; }
 
 	if (defined $x) {
@@ -118,14 +122,14 @@ while (my $line = <>) {
 			my $xd = $x - $oldX;
 			my $yd = $y - $oldY;
 			my $zd = $z - $oldZ;
-			my $ed = $e - $oldE;
+			my $ed = $exstrudeAbsolute ? ($e - $oldE) : $e;
 
 			my $length = sqrt($xd * $xd + $yd * $yd + $zd * $zd);
 
 			if ($length <= $maxVecLength) {
 				outMove($x, $y, $z, $e, 0);
 			} else {
-				my $lastSegOut = -1;
+				my $lastSegOut = 0;
 				my $oSlow = surfaceSpeed($oldX, $oldY, $oldZ);
 
 				my $nSegs = int($length / $maxVecLength + 0.5);
@@ -147,13 +151,13 @@ while (my $line = <>) {
 						outMove($oldX + $xDelta * ($i - 1),
 						  $oldY + $yDelta * ($i - 1),
 						  $oldZ + $zDelta * ($i - 1),
-						  $oldE + $eDelta * ($i - 1), 1);
+						  $exstrudeAbsolute ? ($oldE + $eDelta * ($i - 1)) : ($eDelta * ($i - $lastSegOut)), 1);
 						$oSlow = $slow;
 						$lastSegOut = $i;
 					}
 				}
 				if ($lastSegOut != $nSegs) {
-					outMove($x, $y, $z, $e);
+					outMove($x, $y, $z, $exstrudeAbsolute ? $e : ($eDelta * ($nSegs - $lastSegOut)), $lastSegOut != 0);
 				}
 			}
 		}
@@ -300,6 +304,6 @@ sub outMove {
 
 	my $added = ""; if ($extra) { $added = " ; added"; }
 
-	printf("G1 X%.3f Y%.3f$zCommand E%.3f F%.3f$added\n", $x, $y, $e, surfaceSpeed($x, $y, $z));
+	printf("G1 X%.3f Y%.3f$zCommand E%.4f F%.3f$added\n", $x, $y, $e, surfaceSpeed($x, $y, $z));
 	$lastZOutput = $z;
 }
