@@ -8,7 +8,7 @@ use strict;
 use warnings;
 use 5.10.1;
 
-our $VERSION = 0.3;
+our $VERSION = 0.4;
 use Math::Trig;
 use Imager;
 
