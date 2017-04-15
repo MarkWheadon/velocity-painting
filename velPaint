@@ -237,7 +237,7 @@ sub surfaceSpeedProjectX {
 sub surfaceSpeedProjectY {
 	my ($x, $y, $z) = @_;
 
-	my $xNormalized = ($y - $printCentreX + $projectedImageWidth / 2) / $projectedImageWidth;
+	my $xNormalized = ($y - $printCentreY + $projectedImageWidth / 2) / $projectedImageWidth;
 	my $zNormalized = ($z - $zOffset) / $projectedImageHeight;
 
 	my $imageX = $xNormalized * $imageWidth;
